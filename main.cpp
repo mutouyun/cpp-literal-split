@@ -3,19 +3,23 @@
 #include <iostream>
 
 #include "pp_repeat.hpp"
+#include "type_list.hpp"
 
 ////////////////////////////////////////////////////////////////
-// Define the literal string
+// Define the literal string & helper types
 
 template <char...>
 struct literal_string {};
+
+template <class...>
+struct literal_array {};
 
 ////////////////////////////////////////////////////////////////
 // Operations
 
 /* insert */
 
-template <bool, char C, typename LS>
+template <bool, char C, class LS>
 struct insert_;
 
 template <char C, char... S>
@@ -122,6 +126,42 @@ constexpr auto at(size_t n, const char(&str)[N]) noexcept
     return (n < N) ? str[n] : '\0';
 }
 
+// split
+
+#if defined(_MSC_VER)
+template <char V, class LS> struct find_ { enum: size_t { value = find<V>(LS{}) }; };
+template <char Sep, class LS, size_t = find_<Sep, LS>::value>
+#else
+template <char Sep, class LS, size_t = find<Sep>(LS{})>
+#endif
+struct split_;
+
+template <char Sep>
+struct split_<Sep, literal_string<>, npos>
+{
+    using type = literal_array<>;
+};
+
+template <char Sep, char... S>
+struct split_<Sep, literal_string<S...>, npos>
+{
+    using type = literal_array<literal_string<S...>>;
+};
+
+template <char Sep, size_t Pos, char... S>
+struct split_<Sep, literal_string<S...>, Pos>
+{
+    using head = decltype(substr< 0, Pos>(literal_string<S...>{}));
+    using tail = decltype(substr<Pos + 1>(literal_string<S...>{}));
+    using type = capo::types_link_t<literal_array<head>, typename split_<Sep, tail>::type>;
+};
+
+template <char Sep, char... S>
+constexpr auto split(literal_string<S...>) noexcept
+{
+    return typename split_<Sep, literal_string<S...>>::type{};
+}
+
 ////////////////////////////////////////////////////////////////
 // Conversions
 
@@ -131,26 +171,10 @@ constexpr auto string(literal_string<S...>) noexcept
     return std::string{ S... };
 }
 
-template <typename ArrT>
-struct cast
+template <class... LS>
+constexpr auto array(literal_array<LS...>) noexcept
 {
-    ArrT arr_;
-    cast(const std::string& str) // Not in compile-time...
-    {
-        size_t i = 0, start = 0;
-        while (start < str.size())
-        {
-            auto pos = str.find('\0', start);
-            arr_[i++] = str.substr(start, pos - start);
-            start = pos + 1;
-        }
-    }
-};
-
-template <char... S>
-constexpr auto array(literal_string<S...>) noexcept
-{
-    return cast<std::array<std::string, count<'\0'>(literal_string<S...>{})>>{ string(literal_string<S...>{}) }.arr_;
+    return std::array<std::string, sizeof...(LS)>{ string(LS{})... };
 }
 
 ////////////////////////////////////////////////////////////////
@@ -158,7 +182,7 @@ constexpr auto array(literal_string<S...>) noexcept
 
 #define LITERAL_C(N, STR)       , at(N, STR)
 #define LITERAL_S(STR)          substr<0, sizeof(STR)>(literal_string<at(0, STR) CAPO_PP_REPEAT_MAX_(LITERAL_C, STR)>{})
-#define LITERAL_SPLIT(SEP, STR) array(replace<SEP, '\0'>(LITERAL_S(STR)))
+#define LITERAL_SPLIT(SEP, STR) array(split<SEP>(LITERAL_S(STR)))
 
 ////////////////////////////////////////////////////////////////
 
