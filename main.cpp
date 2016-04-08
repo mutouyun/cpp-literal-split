@@ -4,15 +4,22 @@
 
 #include "pp_repeat.hpp"
 #include "type_list.hpp"
+#include "stopwatch.hpp"
 
 ////////////////////////////////////////////////////////////////
 // Define the literal string & helper types
 
 template <char...>
-struct literal_string {};
+struct literal_string { static const char to_string[]; };
 
-template <class...>
-struct literal_array {};
+template <char... S>
+const char literal_string<S...>::to_string[] = { S... };
+
+template <class... LS>
+struct literal_array { static const std::array<std::string, sizeof...(LS)> to_array; };
+
+template <class... LS>
+const std::array<std::string, sizeof...(LS)> literal_array<LS...>::to_array = { LS::to_string... };
 
 ////////////////////////////////////////////////////////////////
 // Operations
@@ -23,27 +30,21 @@ template <bool, char C, class LS>
 struct insert_;
 
 template <char C, char... S>
-struct insert_<false, C, literal_string<S...>>
+struct insert_<true, C, literal_string<S...>>
 {
     using type = literal_string<C, S...>;
 };
 
 template <char C, char... S>
-struct insert_<true, C, literal_string<S...>>
+struct insert_<false, C, literal_string<S...>>
 {
     using type = literal_string<S...>;
 };
 
-template <char C, char... S>
+template <bool Valid, char C, char... S>
 constexpr auto insert(literal_string<S...>) noexcept
 {
-    return typename insert_<false, C, literal_string<S...>>::type{};
-}
-
-template <bool Ignored, char C, char... S>
-constexpr auto insert(literal_string<S...>) noexcept
-{
-    return typename insert_<Ignored, C, literal_string<S...>>::type{};
+    return typename insert_<Valid, C, literal_string<S...>>::type{};
 }
 
 /* remove */
@@ -57,7 +58,7 @@ constexpr auto remove(literal_string<>) noexcept
 template <char V, char C, char... S>
 constexpr auto remove(literal_string<C, S...>) noexcept
 {
-    return insert<V == C, C>(remove<V>(literal_string<S...>{}));
+    return insert<V != C, C>(remove<V>(literal_string<S...>{}));
 }
 
 /* replace */
@@ -71,7 +72,7 @@ constexpr auto replace(literal_string<>) noexcept
 template <char V1, char V2, char C, char... S>
 constexpr auto replace(literal_string<C, S...>) noexcept
 {
-    return insert<(V1 == C) ? V2 : C>(replace<V1, V2>(literal_string<S...>{}));
+    return insert<true, (V1 == C) ? V2 : C>(replace<V1, V2>(literal_string<S...>{}));
 }
 
 /* count */
@@ -115,7 +116,7 @@ constexpr auto substr(literal_string<>) noexcept
 template <size_t B, size_t E = npos, size_t N = 0, char C, char... S>
 constexpr auto substr(literal_string<C, S...>) noexcept
 {
-    return insert<(B > N) || (N >= E), C>(substr<B, E, N + 1>(literal_string<S...>{}));
+    return insert<(B <= N) && (N < E), C>(substr<B, E, N + 1>(literal_string<S...>{}));
 }
 
 /* at */
@@ -163,32 +164,55 @@ constexpr auto split(literal_string<S...>) noexcept
 }
 
 ////////////////////////////////////////////////////////////////
-// Conversions
-
-template <char... S>
-constexpr auto string(literal_string<S...>) noexcept
-{
-    return std::string{ S... };
-}
-
-template <class... LS>
-constexpr auto array(literal_array<LS...>) noexcept
-{
-    return std::array<std::string, sizeof...(LS)>{ string(LS{})... };
-}
-
-////////////////////////////////////////////////////////////////
 // Preprocessor
 
 #define LITERAL_C(N, STR)       , at(N, STR)
 #define LITERAL_S(STR)          substr<0, sizeof(STR)>(literal_string<at(0, STR) CAPO_PP_REPEAT_MAX_(LITERAL_C, STR)>{})
-#define LITERAL_SPLIT(SEP, STR) array(split<SEP>(LITERAL_S(STR)))
+#define LITERAL_SPLIT(SEP, STR) decltype(split<SEP>(LITERAL_S(STR)))::to_array
 
 ////////////////////////////////////////////////////////////////
 
+template <unsigned N>
+std::array<std::string, N> split_runtime(const char delimiter, const std::string& s)
+{
+    size_t start = 0;
+    size_t end = s.find_first_of(delimiter);
+
+    std::array<std::string, N> output;
+
+    size_t i = 0;
+    while (end <= std::string::npos)
+    {
+        output[i++] = std::move(s.substr(start, end - start));
+        if (end == std::string::npos)
+            break;
+
+        start = end + 2;
+        end = s.find_first_of(delimiter, start);
+    }
+
+    return output;
+}
+
 int main(void)
 {
-    auto arr = LITERAL_SPLIT(',', "1,2,3,4,5,6,7,8,9,0");
-    for (auto& s: arr) std::cout << s << std::endl;
+    std::array<std::string, 10> arr;
+    constexpr size_t loop = 10000000;
+    capo::stopwatch<> sw;
+
+    sw.start();
+    for (size_t i = 0; i < loop; ++i)
+    {
+        arr = LITERAL_SPLIT(',', "1,2,3,4,5,6,7,8,9,0");
+    }
+    std::cout << sw.elapsed<std::chrono::milliseconds>() << "ms" << std::endl;
+
+    sw.start();
+    for (size_t i = 0; i < loop; ++i)
+    {
+        arr = split_runtime<10>(',', "1,2,3,4,5,6,7,8,9,0");
+    }
+    std::cout << sw.elapsed<std::chrono::milliseconds>() << "ms" << std::endl;
+
     return 0;
 }
