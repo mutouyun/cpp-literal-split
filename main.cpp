@@ -173,7 +173,7 @@ constexpr auto split(literal_string<S...>) noexcept
 ////////////////////////////////////////////////////////////////
 
 template <unsigned N>
-std::array<std::string, N> split_runtime(const char delimiter, const std::string& s)
+std::array<std::string, N> runtime_split(const char delimiter, const std::string& s)
 {
     size_t start = 0;
     size_t end = s.find_first_of(delimiter);
@@ -210,7 +210,7 @@ int main(void)
     sw.start();
     for (size_t i = 0; i < loop; ++i)
     {
-        arr = split_runtime<10>(',', "1,2,3,4,5,6,7,8,9,0");
+        arr = runtime_split<10>(',', "1,2,3,4,5,6,7,8,9,0");
     }
     std::cout << sw.elapsed<std::chrono::milliseconds>() << "ms" << std::endl;
 
