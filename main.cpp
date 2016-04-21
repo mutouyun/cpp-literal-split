@@ -1,6 +1,7 @@
 #include <array>
 #include <string>
 #include <iostream>
+#include <type_traits>
 
 #include "pp_repeat.hpp"
 #include "type_list.hpp"
@@ -26,25 +27,10 @@ const std::array<std::string, sizeof...(LS)> literal_array<LS...>::to_array = { 
 
 /* insert */
 
-template <bool, char C, class LS>
-struct insert_;
-
-template <char C, char... S>
-struct insert_<true, C, literal_string<S...>>
-{
-    using type = literal_string<C, S...>;
-};
-
-template <char C, char... S>
-struct insert_<false, C, literal_string<S...>>
-{
-    using type = literal_string<S...>;
-};
-
 template <bool Valid, char C, char... S>
 constexpr auto insert(literal_string<S...>) noexcept
 {
-    return typename insert_<Valid, C, literal_string<S...>>::type{};
+    return typename std::conditional<Valid, literal_string<C, S...>, literal_string<S...>>::type{};
 }
 
 /* remove */
